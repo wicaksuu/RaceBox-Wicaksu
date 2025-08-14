@@ -13,16 +13,25 @@
  */
 class UI {
 public:
+    /** @brief Initialize LVGL, display, touch, and dark theme. */
     void begin(Logger& log, const Config& cfg);
+    /** @brief Show boot screen that receives log lines. */
     void showBoot();
+    /** @brief Display the main menu with racing look. */
     void showMainMenu();
+    /** @brief Show satellite status screen. */
     void showSatelit(const GpsStatus& st);
+    /** @brief Update top bar and process LVGL tasks. */
     void tick(uint32_t now_ms, const GpsStatus& gps, const WifiMgr& wifi);
 private:
+    /** @brief Read touchscreen and feed coordinates to LVGL. */
     static void touch_cb(lv_indev_t*, lv_indev_data_t*);
     static UI* _instance;
+    /** @brief Create a fixed top bar for the active screen. */
     void createTopBar();
+    /** @brief Append a new line to boot log label without scrolling. */
     void appendLog(const String& line);
+
     Logger* _log{nullptr};
     int _tzMin{420};
     lv_obj_t* _topBar{nullptr};
