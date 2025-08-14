@@ -1,0 +1,8 @@
+{
+    // Instructs the VS Code Arduino extension to use the modern CLI backend
+    "arduino.useArduinoCli": true,
+    // Ensures VS Code can locate the arduino-cli executable
+    "arduino.commandPath": "arduino-cli",
+    // Default board definition; adjust if using a different board
+    "arduino.fqbn": "arduino:avr:uno"
+}

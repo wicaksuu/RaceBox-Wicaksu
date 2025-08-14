@@ -1,0 +1,25 @@
+{
+    // Task configuration enabling build and upload directly from VS Code
+    "version": "2.0.0",
+    "tasks": [
+        {
+            // Verifies the sketch using arduino-cli
+            "label": "Arduino: Verify",
+            "type": "shell",
+            "command": "arduino-cli compile --fqbn arduino:avr:uno ${workspaceFolder}/RaceBox-Wicaksu.ino",
+            "problemMatcher": ["$gcc"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            // Uploads the compiled sketch to the connected board
+            "label": "Arduino: Upload",
+            "type": "shell",
+            "command": "arduino-cli upload -p <PORT> --fqbn arduino:avr:uno ${workspaceFolder}/RaceBox-Wicaksu.ino",
+            "problemMatcher": [],
+            "group": "build"
+        }
+    ]
+}

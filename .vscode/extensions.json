@@ -1,0 +1,7 @@
+{
+    // Extension recommendations to support Arduino development
+    "recommendations": [
+        "vsciot-vscode.vscode-arduino", // Provides Arduino tooling and board upload support
+        "ms-vscode.cpptools" // Supplies C/C++ IntelliSense for Arduino sketches
+    ]
+}
