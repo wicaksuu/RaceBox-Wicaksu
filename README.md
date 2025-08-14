@@ -60,3 +60,12 @@
 
 - **TX**: GPIO 27
 - **RX**: GPIO 22
+
+## Pengembangan dengan VS Code
+
+Konfigurasi pada folder `.vscode` memungkinkan penyusunan dan pengunggahan sketch Arduino langsung dari editor.
+
+1. Saat membuka proyek ini di VS Code, instal ekstensi yang direkomendasikan agar dukungan Arduino aktif.
+2. Pastikan `arduino-cli` telah terpasang dan board `arduino:avr:uno` (atau board Anda) tersedia.
+3. Tekan `Ctrl+Shift+B` untuk menjalankan tugas **Arduino: Verify** yang akan mengompilasi `RaceBox-Wicaksu.ino`.
+4. Untuk mengunggah sketch, gunakan tugas **Arduino: Upload** dan ganti placeholder `<PORT>` pada `tasks.json` dengan port serial papan Anda.
