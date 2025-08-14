@@ -27,20 +27,21 @@ void UI::begin(Logger& log, const Config& cfg) {
     _tzMin = cfg.time.tz_offset_minutes;
     _instance = this;
     lv_init();
-    // Enable dark theme with red accents for a racing look.
-    lv_theme_t* th = lv_theme_default_init(nullptr,
+
+    // AI-generated: initialize TFT display then apply a dark theme for racing look
+    static uint32_t draw_buf[240 * 320 / 10];
+    lv_display_t* disp = lv_tft_espi_create(240, 320, draw_buf, sizeof(draw_buf));
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
+    lv_theme_t* th = lv_theme_default_init(disp,
                                            lv_palette_main(LV_PALETTE_GREY),
                                            lv_palette_main(LV_PALETTE_RED),
                                            LV_THEME_DEFAULT_DARK,
                                            LV_FONT_DEFAULT);
-    lv_theme_set_act(th);
+    lv_display_set_theme(disp, th); // set active theme
 
     _tsSPI.begin(PIN_TS_CLK, PIN_TS_MISO, PIN_TS_MOSI, PIN_TS_CS);
     _ts.begin(_tsSPI);
     _ts.setRotation(2);
-    static uint32_t draw_buf[240 * 320 / 10];
-    lv_display_t* disp = lv_tft_espi_create(240, 320, draw_buf, sizeof(draw_buf));
-    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
     lv_indev_t* indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touch_cb);
