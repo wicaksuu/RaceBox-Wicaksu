@@ -26,4 +26,3 @@ private:
   int _attempts = 0;
 };
 
-#endif

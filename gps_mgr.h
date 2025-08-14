@@ -33,4 +33,3 @@ private:
   uint32_t _msgCount = 0;
 };
 
-#endif

@@ -51,30 +51,39 @@ void UI::begin(Logger& log, const Config& cfg) {
   indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, touchscreen_read);
+  lv_obj_set_style_bg_color(lv_screen_active(), lv_color_black(), LV_PART_MAIN); // dark background
   topLabel = lv_label_create(lv_layer_top());
+  lv_obj_set_width(topLabel, SCREEN_WIDTH); // keep single line without overlap
+  lv_label_set_long_mode(topLabel, LV_LABEL_LONG_CLIP);
+  lv_obj_set_style_text_color(topLabel, lv_color_white(), LV_PART_MAIN);
   lv_obj_align(topLabel, LV_ALIGN_TOP_LEFT, 0, 0);
 }
 
 void UI::showBoot() {
   lv_obj_t* scr = lv_screen_active();
   lv_obj_clean(scr);
+  lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN); // keep dark theme
   logArea = lv_textarea_create(scr);
   lv_obj_set_size(logArea, SCREEN_WIDTH, SCREEN_HEIGHT-20);
   lv_obj_align(logArea, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_style_text_color(logArea, lv_color_white(), LV_PART_MAIN);
   if (s_log) s_log->onLine = logHook;
 }
 
 void UI::showMainMenu() {
   lv_obj_t* scr = lv_screen_active();
   lv_obj_clean(scr);
+  lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
   lv_obj_t* btnRace = lv_button_create(scr);
   lv_obj_set_size(btnRace, 120, 80);
   lv_obj_align(btnRace, LV_ALIGN_CENTER, -80, 0);
-  lv_label_set_text(lv_label_create(btnRace), "RACE");
+  lv_obj_t* lblR = lv_label_create(btnRace); // label for race button
+  lv_label_set_text(lblR, "RACE");
   lv_obj_t* btnSat = lv_button_create(scr);
   lv_obj_set_size(btnSat, 120, 80);
   lv_obj_align(btnSat, LV_ALIGN_CENTER, 80, 0);
-  lv_label_set_text(lv_label_create(btnSat), "SATELLITE");
+  lv_obj_t* lblS = lv_label_create(btnSat); // label for satellite button
+  lv_label_set_text(lblS, "SATELLITE");
   logArea = nullptr;
   satLabel = nullptr;
 }
@@ -82,8 +91,10 @@ void UI::showMainMenu() {
 void UI::showSatellite(const GpsStatus& st) {
   lv_obj_t* scr = lv_screen_active();
   lv_obj_clean(scr);
+  lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
   satLabel = lv_label_create(scr);
   lv_label_set_text_fmt(satLabel, "Sats: %d", st.sats);
+  lv_obj_set_style_text_color(satLabel, lv_color_white(), LV_PART_MAIN);
   lv_obj_align(satLabel, LV_ALIGN_CENTER, 0, 0);
   logArea = nullptr;
 }
@@ -110,7 +121,7 @@ void UI::tick(uint32_t now, const GpsStatus& gps, const WifiMgr& wifi) {
   }
   char buf[96];
   snprintf(buf, sizeof(buf), "%s | %s | HDOP %.1f SAT %d Hz %.1f", ip, timebuf, gps.hdop, gps.sats, gps.rate_hz);
-  if (topLabel) lv_label_set_text(topLabel, buf);
+  if (topLabel) lv_label_set_text(topLabel, buf); // update top status line
   if (satLabel) {
     lv_label_set_text_fmt(satLabel, "Sats: %d", gps.sats);
   }
