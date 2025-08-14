@@ -19,6 +19,7 @@ String statusProvider() {
   doc["gps"]["fix"] = st.hasFix;
   doc["gps"]["sats"] = st.sats;
   doc["gps"]["hdop"] = st.hdop;
+  doc["gps"]["alt"] = st.alt_m;
   doc["gps"]["rate"] = st.rate_hz;
   String out; serializeJson(doc, out); return out;
 }
@@ -33,8 +34,17 @@ void setup() {
   }
   UI::setTimezone(cfg.time.tz_offset_minutes);
 
-  gps.begin(cfg.gps, logger);
-  if (cfg.wifi.enable) wifi.begin(cfg.wifi, logger); else wifi.shutdown();
+  if (gps.begin(cfg.gps, logger)) {
+    logger.info("GPS begin success");
+  } else {
+    logger.error("GPS begin failed");
+  }
+  // Start Wi-Fi manager only when enabled in configuration
+  if (cfg.wifi.enable) {
+    wifi.begin(cfg.wifi, logger);
+  } else {
+    wifi.shutdown();
+  }
   WebSrv::setStatusProvider(statusProvider);
 }
 

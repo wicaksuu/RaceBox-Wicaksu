@@ -14,6 +14,7 @@ public:
   void tick(uint32_t now);
   bool connected() const { return WiFi.status() == WL_CONNECTED; }
   IPAddress ip() const { return WiFi.localIP(); }
+  String ssid() const { return _ssid; }
   void shutdown();
   bool done() const { return _state == DONE; }
 private:
@@ -24,5 +25,6 @@ private:
   std::vector<WifiKnown> _candidates;
   int _current = -1;
   int _attempts = 0;
+  String _ssid; //!< SSID of the currently connected network
 };
 

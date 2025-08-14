@@ -13,6 +13,7 @@ struct GpsStatus {
   float hdop = 99.0f;  //!< Horizontal dilution of precision
   float acc_m = 0.0f;  //!< Approximate horizontal accuracy in meters
   int sats = 0;        //!< Number of locked satellites
+  float alt_m = 0.0f;  //!< Altitude above MSL in meters
   float rate_hz = 0.0f;//!< Measured update rate
   time_t utc = 0;      //!< Last UTC time from RMC
 };

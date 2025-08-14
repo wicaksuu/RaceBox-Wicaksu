@@ -36,12 +36,13 @@ void GpsMgr::tick(uint32_t now) {
 
 void GpsMgr::processLine(const String& line) {
   if (line.startsWith("$GPGGA") || line.startsWith("$GNGGA")) {
-    bool fix; int sats; float hdop;
-    if (NMEA::parseGGA(line, fix, sats, hdop)) {
+    bool fix; int sats; float hdop; float alt;
+    if (NMEA::parseGGA(line, fix, sats, hdop, alt)) {
       _status.hasFix = fix;
       _status.sats = sats;
       _status.hdop = hdop;
-      _status.acc_m = hdop * 5.0f; // very rough estimate
+      _status.alt_m = alt;
+      _status.acc_m = hdop * 5.0f; // rough estimate of accuracy
       _msgCount++;
     }
   } else if (line.startsWith("$GPRMC") || line.startsWith("$GNRMC")) {

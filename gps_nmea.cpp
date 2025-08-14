@@ -10,13 +10,14 @@ static std::vector<String> split(const String& s, char delim) {
   return out;
 }
 
-bool NMEA::parseGGA(const String& line, bool& fix, int& sats, float& hdop) {
+bool NMEA::parseGGA(const String& line, bool& fix, int& sats, float& hdop, float& alt) {
   auto fields = split(line, ',');
-  if(fields.size() < 9) return false;
+  if(fields.size() < 10) return false; // need altitude field
   int fixQ = fields[6].toInt();
   fix = fixQ>0;
   sats = fields[7].toInt();
   hdop = fields[8].toFloat();
+  alt = fields[9].toFloat();
   return true;
 }
 

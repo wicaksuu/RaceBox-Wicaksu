@@ -5,6 +5,7 @@ bool WifiMgr::begin(const WifiCfg& cfg, Logger& log) {
   _log = &log;
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
+  _ssid = ""; // clear previous SSID
   _log->info("WiFi scanning...");
   WiFi.scanNetworks(true); // async
   _state = SCANNING;
@@ -16,6 +17,7 @@ void WifiMgr::shutdown() {
   WebSrv::stop();
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
+  _ssid = ""; // mark as disconnected
   _state = DONE;
   if (_log) _log->warn("WiFi OFF");
 }
@@ -31,7 +33,10 @@ void WifiMgr::tick(uint32_t now) {
         for (int i=0;i<n;i++) {
           String ssid = WiFi.SSID(i);
           for (const auto& k : _cfg.known) {
-            if (ssid == k.ssid) _candidates.push_back(k);
+            if (ssid == k.ssid) {
+              _candidates.push_back(k);
+              _log->info("WiFi found: %s", ssid.c_str()); // log each matched SSID
+            }
           }
         }
         std::sort(_candidates.begin(), _candidates.end(),[](const WifiKnown& a,const WifiKnown& b){return a.priority>b.priority;});
@@ -41,7 +46,13 @@ void WifiMgr::tick(uint32_t now) {
       break;
     }
     case CONNECTING: {
-      if (connected()) { _log->info("WiFi connected: %s", WiFi.SSID().c_str()); WebSrv::start(*_log); _state = DONE; break; }
+      if (connected()) {
+        _ssid = WiFi.SSID();
+        _log->info("WiFi connected: %s", _ssid.c_str());
+        WebSrv::start(*_log);
+        _state = DONE;
+        break;
+      }
       if (_current < 0) {
         if (_candidates.empty()) { shutdown(); break; }
         _current = 0; _attempts = 0;

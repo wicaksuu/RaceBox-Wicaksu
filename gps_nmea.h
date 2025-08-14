@@ -7,7 +7,14 @@
 #include "global.h"
 
 namespace NMEA {
-  bool parseGGA(const String& line, bool& fix, int& sats, float& hdop);
+  /**
+   * @brief Parse a GGA sentence to extract fix flag, satellite count, HDOP, and altitude.
+   */
+  bool parseGGA(const String& line, bool& fix, int& sats, float& hdop, float& alt);
+
+  /**
+   * @brief Parse an RMC sentence to populate a tm structure with date and time.
+   */
   bool parseRMC(const String& line, tm& out);
 }
 
