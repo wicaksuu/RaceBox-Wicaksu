@@ -7,9 +7,9 @@
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <WiFi.h>
+#include <FS.h>        // diperlukan sebelum WebServer.h
 #include <WebServer.h>
 #include <SD.h>
-#include <FS.h>
 
 // ===== Display & Touch =====
 inline constexpr int SCREEN_WIDTH  = 240;
