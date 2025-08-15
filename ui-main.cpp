@@ -67,7 +67,7 @@ void UI::begin(Logger& log, const Config& cfg) {
   ts.begin(touchSPI);
   ts.setRotation(2);
   disp = lv_tft_espi_create(SCREEN_WIDTH, SCREEN_HEIGHT, draw_buf, sizeof(draw_buf));
-  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_270);
+  lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_180);
   indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, touchscreen_read);
