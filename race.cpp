@@ -1,0 +1,192 @@
+#include "race.h"
+#include "global.h"
+#include "logview.h"
+#include <ArduinoJson.h>
+#include <SD.h>
+#include <math.h>
+
+static RaceConfig G;
+static RaceState  RS;
+
+// Ring buffer jejak untuk interpolasi (dist vs waktu vs speed)
+struct Sample { uint32_t t_ms; float dist_m; float sog_mps; double lat,lon; };
+static const size_t RB_N = 256;
+static Sample RB[RB_N];
+static size_t rb_head=0, rb_size=0;
+
+static inline void rb_push(const Sample& s){
+  RB[rb_head] = s;
+  rb_head = (rb_head + 1) % RB_N;
+  if (rb_size < RB_N) rb_size++;
+}
+static inline const Sample& rb_get_back(size_t i){ // i=0 last
+  size_t idx = (rb_head + RB_N - 1 - i) % RB_N;
+  return RB[idx];
+}
+
+static double hav_m(double lat1,double lon1,double lat2,double lon2){
+  static constexpr double R = 6371000.0;
+  double r1=lat1*M_PI/180.0, r2=lat2*M_PI/180.0, dlat=(lat2-lat1)*M_PI/180.0, dlon=(lon2-lon1)*M_PI/180.0;
+  double a = sin(dlat/2)*sin(dlat/2) + cos(r1)*cos(r2)*sin(dlon/2)*sin(dlon/2);
+  return R * 2 * atan2(sqrt(a), sqrt(1-a));
+}
+
+RaceConfig& race_cfg(){ return G; }
+const RaceState& race_state(){ return RS; }
+
+static void fill_defaults(RaceConfig& cfg){ cfg = RaceConfig{}; }
+
+bool race_load(RaceConfig& out){
+  if (!SD.exists(RACE_PATH)) { fill_defaults(out); return false; }
+  File f = SD.open(RACE_PATH, FILE_READ);
+  if (!f) { fill_defaults(out); return false; }
+  StaticJsonDocument<4096> doc;
+  auto err = deserializeJson(doc, f); f.close();
+  if (err){ fill_defaults(out); return false; }
+  out.arm_speed_kph     = doc["arm_speed_kph"]     | 1.0f;
+  out.trigger_speed_kph = doc["trigger_speed_kph"] | 5.0f;
+  out.max_hdop_m        = doc["max_hdop_m"]        | 1.5f;
+  out.traps.clear();
+  if (doc["traps"].is<JsonArray>()){
+    for (JsonObject t : doc["traps"].as<JsonArray>()){
+      Trap tr;
+      tr.name     = String(t["name"] | "trap");
+      tr.at_m     = (float)(t["at_m"] | 0.0f);
+      tr.window_m = (float)(t["window_m"] | 0.0f);
+      if (tr.at_m > 0) out.traps.push_back(tr);
+    }
+  }
+  return true;
+}
+
+bool race_save(const RaceConfig& cfg){
+  File f = SD.open(RACE_PATH, FILE_WRITE, true);
+  if (!f) return false;
+  StaticJsonDocument<4096> doc;
+  doc["arm_speed_kph"]     = cfg.arm_speed_kph;
+  doc["trigger_speed_kph"] = cfg.trigger_speed_kph;
+  doc["max_hdop_m"]        = cfg.max_hdop_m;
+  JsonArray arr = doc.createNestedArray("traps");
+  for (auto& t : cfg.traps){
+    JsonObject o = arr.createNestedObject();
+    o["name"] = t.name;
+    o["at_m"] = t.at_m;
+    o["window_m"] = t.window_m;
+  }
+  bool ok = (serializeJsonPretty(doc, f) > 0);
+  f.close();
+  return ok;
+}
+
+void race_begin(){
+  RS = RaceState{};
+  rb_head = 0; rb_size = 0;
+  // siapkan result entries
+  RS.results.clear();
+  for (auto& t : G.traps){
+    RS.results.push_back({t.name, t.at_m, false, 0, 0, 0.0f, 0.0f});
+  }
+}
+
+void race_reset(){ race_begin(); logln("[RACE] Reset"); }
+void race_arm(bool on){
+  RS.armed = on;
+  if (on){ RS.running=false; logln("[RACE] Armed"); }
+  else   { if (RS.running) logln("[RACE] Disarmed (was running)"); RS.running=false; }
+}
+
+// cari waktu crossing jarak X via interpolasi linear
+static bool interp_cross_time(float Xm, uint32_t& t_ms_out){
+  if (rb_size<2) return false;
+  // ambil dua sampel terakhir yang menyeberang X
+  const Sample* prev=nullptr; const Sample* now=nullptr;
+  float d_prev=0, d_now=0;
+  for (size_t i=0; i<rb_size; ++i){
+    const Sample& s = rb_get_back(i);
+    if (i==0){ now=&s; d_now=s.dist_m; continue; }
+    prev = now; d_prev = d_now;
+    now  = &s;  d_now  = s.dist_m;
+    if (d_prev < Xm && d_now >= Xm) break;
+    if (i == rb_size-1) return false;
+  }
+  if (!prev || !now) return false;
+  float f = (Xm - d_prev) / max( (d_now - d_prev), 1e-3f );
+  f = constrain(f, 0.0f, 1.0f);
+  t_ms_out = (uint32_t)( prev->t_ms + f * (int32_t)(now->t_ms - prev->t_ms) );
+  return true;
+}
+
+// average speed pada window [Xm - w/2, Xm + w/2]
+static bool window_avg_speed(float Xm, float w, float& kph_out){
+  if (w <= 0) { kph_out = 0; return false; }
+  float A = Xm - w*0.5f, B = Xm + w*0.5f;
+  if (rb_size<2) return false;
+  uint32_t tA=0, tB=0;
+  if (!interp_cross_time(A, tA)) return false;
+  if (!interp_cross_time(B, tB)) return false;
+  float dt = (tB - tA) * 0.001f;
+  if (dt <= 0) return false;
+  kph_out = (w / dt) * 3.6f; // m/s -> km/h
+  return true;
+}
+
+void race_update(const GPSFix& fix){
+  // gating kualitas khusus race
+  if (!fix.valid || fix.hdop > G.max_hdop_m || fix.fixQ==0) return;
+
+  // arming otomatis
+  float kph = fix.sog_mps * 3.6f;
+  if (!RS.armed && kph >= G.arm_speed_kph){
+    race_arm(true);
+  }
+
+  // start ketika melewati trigger
+  if (RS.armed && !RS.running && kph >= G.trigger_speed_kph){
+    RS.running = true;
+    RS.t_start_ms = fix.t_ms;
+    RS.lat0 = fix.lat; RS.lon0 = fix.lon;
+    RS.last_lat = fix.lat; RS.last_lon = fix.lon;
+    RS.cum_dist_m = 0.0f;
+    // kosongkan ring buffer
+    rb_head=0; rb_size=0;
+    rb_push({fix.t_ms, 0.0f, fix.sog_mps, fix.lat, fix.lon});
+    logln("[RACE] START");
+  }
+
+  if (!RS.running) return;
+
+  // integrasi jarak path
+  float dstep = (float) hav_m(RS.last_lat, RS.last_lon, fix.lat, fix.lon);
+  // proteksi noise: tolak step terlalu besar dibanding speed (mis-parse)
+  float step_max = max(5.0f, fix.sog_mps * 0.3f); // meter per sample
+  if (dstep > step_max) dstep = step_max;
+
+  RS.cum_dist_m += dstep;
+  RS.last_lat = fix.lat; RS.last_lon = fix.lon;
+
+  rb_push({fix.t_ms, RS.cum_dist_m, fix.sog_mps, fix.lat, fix.lon});
+
+  // cek setiap trap
+  for (size_t i=0; i<RS.results.size(); ++i){
+    auto& r = RS.results[i];
+    if (r.crossed) continue;
+    uint32_t tX=0;
+    if (interp_cross_time(r.at_m, tX)){
+      r.crossed = true;
+      r.t_start_ms = RS.t_start_ms;
+      r.t_cross_ms = tX;
+      r.et_ms = (float)( (int32_t)tX - (int32_t)RS.t_start_ms );
+      // trap speed (avg di window)
+      float w=0;
+      for (auto& tcfg : G.traps) if (tcfg.name==r.name){ w = tcfg.window_m; break; }
+      if (w>0 && window_avg_speed(r.at_m, w, r.trap_kph)){
+        // ok
+      }
+      // log
+      if (w>0)
+        logf("[TRAP] %s @%.1fm ET=%.3fs Trap=%.1f km/h", r.name.c_str(), r.at_m, r.et_ms/1000.0f, r.trap_kph);
+      else
+        logf("[TRAP] %s @%.1fm ET=%.3fs", r.name.c_str(), r.at_m, r.et_ms/1000.0f);
+    }
+  }
+}

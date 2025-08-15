@@ -1,9 +1,6 @@
 #pragma once
-/* One-shot application init and lightweight app loop.
-   Call app_init() from setup(), and app_loop() from loop().
-*/
-#include <Arduino.h>
 #include "global.h"
 
-bool app_init();    // returns false if any critical init fails
-void app_loop();    // non-blocking periodic servicing (LVGL tick & handler)
+// One-call setup and cooperative loop (non-blocking)
+bool app_init();   // return false jika gagal init kritikal
+void app_loop();   // panggil dari loop()

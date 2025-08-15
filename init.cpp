@@ -1,16 +1,48 @@
 #include "init.h"
+#include "logview.h"
+#include "gps_read.h"
+#include "race.h"
 
-// -------------------- Local: Touch <-> LVGL bridge --------------------
+// ====== DMA flush state ======
+static volatile bool     s_dma_busy = false;
+static lv_display_t*     s_dma_disp = nullptr;
+
+// ====== LVGL -> TFT flush callback (DMA, non-blocking) ======
+static void disp_flush(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map) {
+  const int16_t x = area->x1;
+  const int16_t y = area->y1;
+  const int16_t w = area->x2 - area->x1 + 1;
+  const int16_t h = area->y2 - area->y1 + 1;
+
+  tft.pushImageDMA(x, y, w, h, reinterpret_cast<uint16_t*>(px_map));
+  s_dma_busy = true;
+  s_dma_disp = disp;
+}
+
+// ====== Poll DMA & notify LVGL ======
+static inline void poll_dma_complete() {
+#if defined(ESP32) && defined(TFT_eSPI_VERSION)
+  if (s_dma_busy && !tft.dmaBusy()) {
+    s_dma_busy = false;
+    lv_display_flush_ready(s_dma_disp);
+  }
+#else
+  if (s_dma_busy) {
+    tft.dmaWait();
+    s_dma_busy = false;
+    lv_display_flush_ready(s_dma_disp);
+  }
+#endif
+}
+
+// ====== Touch -> LVGL callback ======
 static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   LV_UNUSED(indev);
-  // Fast check: use IRQ when available; fallback to touched()
   if (!touchscreen.tirqTouched() && !touchscreen.touched()) {
     data->state = LV_INDEV_STATE_RELEASED;
     return;
   }
-
-  TS_Point p = touchscreen.getPoint(); // raw coords
-  // Map raw -> screen pixels
+  TS_Point p = touchscreen.getPoint(); // raw
   int16_t x = map(p.x, TOUCH_X_MIN, TOUCH_X_MAX, 1, SCREEN_WIDTH);
   int16_t y = map(p.y, TOUCH_Y_MIN, TOUCH_Y_MAX, 1, SCREEN_HEIGHT);
   if (x < 0) x = 0; if (x >= SCREEN_WIDTH)  x = SCREEN_WIDTH  - 1;
@@ -21,127 +53,252 @@ static void touchscreen_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   data->point.y = y;
 }
 
-// -------------------- Local: Simple demo GUI --------------------
-static int btn1_count = 0;
-
-static void on_btn1(lv_event_t* e) {
-  if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-    btn1_count++;
-    LV_LOG_USER("Button clicked %d", btn1_count);
-  }
+// ====== Helpers ======
+static void ui_yield_step() {
+  poll_dma_complete();
+  lv_timer_handler();
 }
 
-static void on_btn2(lv_event_t* e) {
-  if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
-    lv_obj_t* obj = (lv_obj_t*) lv_event_get_target(e);
-    LV_LOG_USER("Toggled %s", lv_obj_has_state(obj, LV_STATE_CHECKED) ? "on" : "off");
-  }
-}
-
-static lv_obj_t* slider_label = nullptr;
-
-static void on_slider(lv_event_t* e) {
-  lv_obj_t* slider = (lv_obj_t*) lv_event_get_target(e);
-  char buf[8];
-  lv_snprintf(buf, sizeof(buf), "%d%%", (int)lv_slider_get_value(slider));
-  lv_label_set_text(slider_label, buf);
-  lv_obj_align_to(slider_label, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
-  LV_LOG_USER("Slider changed to %d%%", (int)lv_slider_get_value(slider));
-}
-
-static void build_main_gui() {
-  // Title
-  lv_obj_t* text_label = lv_label_create(lv_screen_active());
-  lv_label_set_long_mode(text_label, LV_LABEL_LONG_WRAP);
-  lv_label_set_text(text_label, "Hello, world!");
-  lv_obj_set_width(text_label, 150);
-  lv_obj_set_style_text_align(text_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(text_label, LV_ALIGN_CENTER, 0, -90);
-
-  // Button
-  lv_obj_t* btn1 = lv_button_create(lv_screen_active());
-  lv_obj_add_event_cb(btn1, on_btn1, LV_EVENT_ALL, nullptr);
-  lv_obj_align(btn1, LV_ALIGN_CENTER, 0, -50);
-  lv_obj_remove_flag(btn1, LV_OBJ_FLAG_PRESS_LOCK);
-  lv_obj_t* btn_label = lv_label_create(btn1);
-  lv_label_set_text(btn_label, "Button");
-  lv_obj_center(btn_label);
-
-  // Toggle
-  lv_obj_t* btn2 = lv_button_create(lv_screen_active());
-  lv_obj_add_event_cb(btn2, on_btn2, LV_EVENT_ALL, nullptr);
-  lv_obj_align(btn2, LV_ALIGN_CENTER, 0, 10);
-  lv_obj_add_flag(btn2, LV_OBJ_FLAG_CHECKABLE);
-  lv_obj_set_height(btn2, LV_SIZE_CONTENT);
-  btn_label = lv_label_create(btn2);
-  lv_label_set_text(btn_label, "Toggle");
-  lv_obj_center(btn_label);
-
-  // Slider + label
-  lv_obj_t* slider = lv_slider_create(lv_screen_active());
-  lv_obj_align(slider, LV_ALIGN_CENTER, 0, 60);
-  lv_obj_add_event_cb(slider, on_slider, LV_EVENT_VALUE_CHANGED, nullptr);
-  lv_slider_set_range(slider, 0, 100);
-  lv_obj_set_style_anim_duration(slider, 2000, 0);
-  slider_label = lv_label_create(lv_screen_active());
-  lv_label_set_text(slider_label, "0%");
-  lv_obj_align_to(slider_label, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
-}
-
-// -------------------- Public: init & loop --------------------
-bool app_init() {
-  Serial.begin(115200);
-  delay(50);
-  Serial.printf("LVGL Library Version: %d.%d.%d\n",
-                (int)lv_version_major(), (int)lv_version_minor(), (int)lv_version_patch());
-
-  // LVGL core
-  lv_init();
-  lv_log_register_print_cb(lv_log_print_cb);
-
-  // Touch SPI + driver
-  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touchscreen.begin(touchscreenSPI);     // Paul's lib: void return
-  touchscreen.setRotation(TOUCH_ROTATION);
-  pinMode(XPT2046_IRQ, INPUT);
-
-  // Display (TFT_eSPI via helper from LVGL Arduino port)
-  g_display = lv_tft_espi_create(SCREEN_WIDTH, SCREEN_HEIGHT, LV_DRAW_BUF, DRAW_BUF_SIZE_BYTES);
-  if (!g_display) {
-    Serial.println("ERR: lv_tft_espi_create failed");
+static bool init_sdcard() {
+  // HSPI untuk hindari konflik dengan TFT (VSPI)
+  sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  bool ok = SD.begin(SD_CS, sdSPI, 25000000);
+  if (!ok) {
+    logln("[SD] Init FAILED");
     return false;
   }
-  lv_display_set_rotation(g_display, DISP_ROTATION);
-
-  // Input device (touch)
-  g_touch_indev = lv_indev_create();
-  lv_indev_set_type(g_touch_indev, LV_INDEV_TYPE_POINTER);
-  lv_indev_set_read_cb(g_touch_indev, touchscreen_read_cb);
-
-  // Build demo GUI
-  build_main_gui();
-
+  uint8_t type = SD.cardType();
+  const char* t = (type == CARD_NONE) ? "NONE" :
+                  (type == CARD_MMC)  ? "MMC"  :
+                  (type == CARD_SD)   ? "SDSC" :
+                  (type == CARD_SDHC) ? "SDHC" : "UNKNOWN";
+  uint64_t sizeMB = SD.cardSize() / (1024ULL * 1024ULL);
+  logf("[SD] OK: %s, %llu MB", t, (unsigned long long)sizeMB);
+  if (!SD.exists("/config")) {
+    SD.mkdir("/config");
+    logln("[SD] /config created");
+  }
   return true;
 }
 
-// Simple non-blocking scheduler for LVGL tick & handler
+static bool init_wifi(uint32_t timeout_ms = 5000) {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  logf("[WiFi] Connecting to %s ...", WIFI_SSID);
+
+  uint32_t start = millis();
+  wl_status_t st;
+  do {
+    ui_yield_step();
+    st = WiFi.status();
+    if (st == WL_CONNECTED) break;
+  } while (millis() - start < timeout_ms);
+
+  if (st == WL_CONNECTED) {
+    logf("[WiFi] OK: %s", WiFi.localIP().toString().c_str());
+    return true;
+  } else {
+    logln("[WiFi] FAILED");
+    return false;
+  }
+}
+
+static bool init_gps() {
+  GPSSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
+  delay(10);
+  logf("[GPS] UART %d,%d @ %lu OK", GPS_RX, GPS_TX, (unsigned long)GPS_BAUD);
+  // Optional: baca sekilas NMEA untuk sanity (non-blocking singkat)
+  uint32_t start = millis();
+  while (millis() - start < 100) {
+    if (GPSSerial.available()) {
+      char c = (char)GPSSerial.read();
+      (void)c;
+      break;
+    }
+    ui_yield_step();
+  }
+  return true;
+}
+
+static bool init_webserver() {
+  // ===== Race config API =====
+  server.on("/api/race", HTTP_GET, [](){
+    const RaceConfig& C = race_cfg();
+    StaticJsonDocument<4096> doc;
+    doc["arm_speed_kph"]     = C.arm_speed_kph;
+    doc["trigger_speed_kph"] = C.trigger_speed_kph;
+    doc["max_hdop_m"]        = C.max_hdop_m;
+    JsonArray arr = doc.createNestedArray("traps");
+    for (auto& t : C.traps){
+      JsonObject o = arr.createNestedObject();
+      o["name"] = t.name; o["at_m"] = t.at_m; o["window_m"] = t.window_m;
+    }
+    // last results
+    const RaceState& RS = race_state();
+    JsonObject rs = doc.createNestedObject("state");
+    rs["armed"] = RS.armed; rs["running"] = RS.running; rs["dist_m"] = RS.cum_dist_m;
+    JsonArray R = rs.createNestedArray("results");
+    for (auto& r : RS.results){
+      JsonObject o = R.createNestedObject();
+      o["name"]=r.name; o["at_m"]=r.at_m; o["crossed"]=r.crossed;
+      o["et_ms"]=r.et_ms; o["trap_kph"]=r.trap_kph;
+    }
+    String out; serializeJsonPretty(doc, out);
+    server.send(200, "application/json", out);
+  });
+
+  server.on("/api/race", HTTP_POST, [](){
+    if (!server.hasArg("plain")) { server.send(400, "text/plain", "need body"); return; }
+    StaticJsonDocument<4096> doc;
+    auto err = deserializeJson(doc, server.arg("plain"));
+    if (err){ server.send(400, "text/plain", err.c_str()); return; }
+
+    RaceConfig cfg = race_cfg(); // copy
+    if (doc.containsKey("arm_speed_kph"))     cfg.arm_speed_kph     = doc["arm_speed_kph"];
+    if (doc.containsKey("trigger_speed_kph")) cfg.trigger_speed_kph = doc["trigger_speed_kph"];
+    if (doc.containsKey("max_hdop_m"))        cfg.max_hdop_m        = doc["max_hdop_m"];
+    if (doc["traps"].is<JsonArray>()){
+      cfg.traps.clear();
+      for (JsonObject t : doc["traps"].as<JsonArray>()){
+        Trap tr;
+        tr.name     = String(t["name"] | "trap");
+        tr.at_m     = (float)(t["at_m"] | 0.0f);
+        tr.window_m = (float)(t["window_m"] | 0.0f);
+        if (tr.at_m>0) cfg.traps.push_back(tr);
+      }
+    }
+    // apply runtime + save
+    race_cfg() = cfg;
+    bool saved = race_save(race_cfg());
+    logf("[RACE] Config save: %s", saved?"OK":"FAIL");
+
+    // update gating ke filter GPS
+    GPSFilterTuning tune; tune.max_hdop_m = cfg.max_hdop_m; gps_set_filter_tuning(tune);
+
+    // reset state biar siap run baru
+    race_reset();
+    server.send(200, "text/plain", "OK");
+  });
+
+  server.on("/api/race/arm", HTTP_POST, [](){
+    if (!server.hasArg("plain")) { server.send(400, "text/plain", "need body"); return; }
+    StaticJsonDocument<256> doc;
+    auto err = deserializeJson(doc, server.arg("plain"));
+    if (err){ server.send(400, "text/plain", err.c_str()); return; }
+    bool on = doc["arm"] | true;
+    race_arm(on);
+    server.send(200, "text/plain", on?"ARMED":"DISARMED");
+  });
+
+  server.on("/api/race/reset", HTTP_POST, [](){
+    race_reset();
+    server.send(200, "text/plain", "OK");
+  });
+
+  server.on("/log", [](){
+    server.send(200, "text/plain", logview_get_text());
+  });
+  server.on("/health", [](){ server.send(200, "text/plain", "OK"); });
+  server.begin();
+  logln("[HTTP] Server started: GET /  /log  /health");
+  return true;
+}
+
+// ====== INIT (one-call) ======
+bool app_init() {
+  Serial.begin(115200);
+  delay(30);
+
+  // LVGL core
+  lv_init();
+  lv_log_register_print_cb(logview_lvgl_log_cb); // route LVGL logs ke logger kita
+
+  // TFT
+  tft.init();
+  tft.setRotation(1);     // CYD landscape
+  tft.fillScreen(TFT_BLACK);
+  tft.initDMA();          // aktifkan DMA path
+
+  // LVGL display (double buffer + partial + DMA flush)
+  g_display = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
+  lv_display_set_buffers(g_display, LV_DRAW_BUF_A, LV_DRAW_BUF_B, DRAW_BUF_SIZE_BYTES,
+                         LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_flush_cb(g_display, disp_flush);
+  lv_display_set_rotation(g_display, DISP_ROT);
+
+  // Touch
+  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+  touchscreen.begin(touchscreenSPI);
+  touchscreen.setRotation(TOUCH_ROT);
+  pinMode(XPT2046_IRQ, INPUT);
+
+  // Welcome + log view
+  logview_init("Welcome — Racing UI");
+  logf("[BOOT] LVGL %d.%d.%d", (int)lv_version_major(), (int)lv_version_minor(), (int)lv_version_patch());
+  logf("[BOOT] Free heap: %u", (unsigned)ESP.getFreeHeap());
+
+  // Peripherals
+  init_sdcard();
+  init_wifi();
+  init_gps();
+    // ===== Race config =====
+    race_load(race_cfg()) ? logln("[RACE] Loaded /config/race.json")
+    : logln("[RACE] Using default race config");
+
+    // Sinkronkan gating HDOP dari race ke filter GPS
+    GPSFilterTuning tune;
+    tune.max_hdop_m = race_cfg().max_hdop_m;
+    gps_set_filter_tuning(tune);
+
+    // ===== GPS reader =====
+    gps_reader_begin(160); // line buffer
+    race_begin();          // siapin state
+
+
+  init_webserver();
+
+  logln("[BOOT] Init sequence done.");
+  return true;
+}
+
+// ====== LOOP (non-blocking, tight cadence) ======
 void app_loop() {
-  static uint32_t last_tick_ms  = 0;
-  static uint32_t last_task_ms  = 0;
-  constexpr uint32_t TICK_MS    = 5;   // LVGL internal tick step
-  constexpr uint32_t HANDLER_MS = 5;   // how often we run lv_timer_handler()
+  static uint32_t last_tick = 0;
+  static uint32_t last_run  = 0;
+  static uint32_t last_ws   = 0;
+
+  constexpr uint32_t TICK_MS = 2;
+  constexpr uint32_t RUN_MS  = 2;
+  constexpr uint32_t WS_MS   = 2;   // webserver polling
 
   uint32_t now = millis();
 
-  // Advance LVGL tick in fixed steps (catch up if loop jitter occurs)
-  while ((now - last_tick_ms) >= TICK_MS) {
+  // LVGL tick
+  while ((now - last_tick) >= TICK_MS) {
     lv_tick_inc(TICK_MS);
-    last_tick_ms += TICK_MS;
+    last_tick += TICK_MS;
   }
 
-  // Service LVGL timers (render, anims, input processing)
-  if ((now - last_task_ms) >= HANDLER_MS) {
-    lv_timer_handler();  // non-blocking
-    last_task_ms += HANDLER_MS;
+  // LVGL service + DMA poll
+  if ((now - last_run) >= RUN_MS) {
+    poll_dma_complete();
+    lv_timer_handler();
+    last_run = now;
   }
+
+  // WebServer
+  if ((now - last_ws) >= WS_MS) {
+    server.handleClient();
+    last_ws = now;
+  }
+  // ---- GPS poll ----
+  GPSFix fx;
+  if (gps_poll(fx)) {
+    // render status / debug di log hanya saat invalid→valid atau event trap (sudah di race_update)
+    if (fx.valid) {
+      race_update(fx);
+    }
+  }
+
+  // TODO: tempatkan task lain (GPS parsing, dsb) di sini, tetap non-blocking.
 }

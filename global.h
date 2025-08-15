@@ -1,53 +1,73 @@
 #pragma once
 /* Global pins, constants, and shared objects for CYD (ESP32-2432S028R) + LVGL 9.x.
-   - Keep this header lean: only declarations and inline constexpr.
-   - Definitions live in global.cpp to avoid multiple definitions.
-*/
+   Racing-use tuned (DMA, double buffer). */
 #include <Arduino.h>
 #include <SPI.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <SD.h>
+#include <FS.h>
 
-// ---------- Display & Touch ----------
-inline constexpr int SCREEN_WIDTH  = 240;  // physical panel size (portrait)
+// ===== Display & Touch =====
+inline constexpr int SCREEN_WIDTH  = 240;
 inline constexpr int SCREEN_HEIGHT = 320;
-inline constexpr lv_display_rotation_t DISP_ROTATION = LV_DISPLAY_ROTATION_270; // landscape
+inline constexpr lv_display_rotation_t DISP_ROT = LV_DISPLAY_ROTATION_270; // landscape
 
-// XPT2046 touch pins (on CYD)
 inline constexpr int XPT2046_IRQ  = 36;  // T_IRQ (input-only)
 inline constexpr int XPT2046_MOSI = 32;  // T_DIN
 inline constexpr int XPT2046_MISO = 39;  // T_OUT (input-only)
 inline constexpr int XPT2046_CLK  = 25;  // T_CLK
 inline constexpr int XPT2046_CS   = 33;  // T_CS
-inline constexpr uint8_t TOUCH_ROTATION = 2; // 0..3, tune if axes are flipped
+inline constexpr uint8_t TOUCH_ROT = 2;  // 0..3, ubah jika sumbu kebalik
 
-// Raw touch calibration (tweak to your panel)
+// Kalibrasi touch (raw -> pixel)
 inline constexpr int TOUCH_X_MIN = 200;
 inline constexpr int TOUCH_X_MAX = 3700;
 inline constexpr int TOUCH_Y_MIN = 240;
 inline constexpr int TOUCH_Y_MAX = 3800;
 
-// ---------- LVGL buffers ----------
+// ===== LVGL Buffers (double buffer, partial) =====
 #ifndef LV_COLOR_DEPTH
-#warning "LV_COLOR_DEPTH not defined, assuming 16-bit"
+#warning "LV_COLOR_DEPTH not defined; assuming 16-bit"
 #define LV_COLOR_DEPTH 16
 #endif
-inline constexpr int    DRAW_BUF_DIV        = 10; // ~10% of screen
-inline constexpr size_t DRAW_BUF_SIZE_BYTES =
-  (size_t(SCREEN_WIDTH) * size_t(SCREEN_HEIGHT) / DRAW_BUF_DIV) * (LV_COLOR_DEPTH / 8);
+// ~1/4 layar per buffer: 240x80x2B = 38.4KB; double ~76.8KB
+inline constexpr int    DRAW_BUF_LINES      = 80;
+inline constexpr size_t DRAW_BUF_SIZE_BYTES = size_t(SCREEN_WIDTH) * DRAW_BUF_LINES * (LV_COLOR_DEPTH / 8);
 
-// Extern storage defined in global.cpp
-extern uint32_t LV_DRAW_BUF[DRAW_BUF_SIZE_BYTES / sizeof(uint32_t)];
+extern uint32_t LV_DRAW_BUF_A[DRAW_BUF_SIZE_BYTES / sizeof(uint32_t)];
+extern uint32_t LV_DRAW_BUF_B[DRAW_BUF_SIZE_BYTES / sizeof(uint32_t)];
 
-// ---------- Shared drivers/handles ----------
-extern SPIClass touchscreenSPI;                // VSPI for touch
-extern XPT2046_Touchscreen touchscreen;       // Touch driver
-extern lv_display_t* g_display;               // LVGL display handle
-extern lv_indev_t*   g_touch_indev;           // LVGL input device
+// ===== Peripherals: SD (pakai HSPI default pins; sesuaikan bila perlu) =====
+inline constexpr int SD_SCK  = 14;
+inline constexpr int SD_MISO = 12;
+inline constexpr int SD_MOSI = 13;
+inline constexpr int SD_CS   = 15;
 
-// ---------- Logging ----------
-void lv_log_print_cb(lv_log_level_t level, const char * buf);
+// ===== GPS (UART) =====
+inline constexpr int GPS_RX   = 27;
+inline constexpr int GPS_TX   = 22;
+inline constexpr uint32_t GPS_BAUD = 115200;
 
-// ---------- Sanity checks ----------
+// ===== Wi-Fi Credentials (ubah sesuai jaringanmu) =====
+inline const char* WIFI_SSID = "YOUR_SSID";
+inline const char* WIFI_PASS = "YOUR_PASSWORD";
+
+// ===== Shared drivers/handles =====
+extern TFT_eSPI tft;
+extern SPIClass touchscreenSPI;           // VSPI untuk touch
+extern XPT2046_Touchscreen touchscreen;   // Touch driver
+extern SPIClass sdSPI;                    // HSPI untuk SD
+extern HardwareSerial GPSSerial;          // UART untuk GPS (port 1)
+extern WebServer server;                  // Web server (port 80)
+extern lv_display_t* g_display;           // LVGL display
+extern lv_indev_t*   g_touch_indev;       // LVGL input (touch)
+
+// ===== Logging hook (LVGL -> Serial/TFT) =====
+void lv_log_print_cb(lv_log_level_t level, const char* buf);
+
+// Sanity
 static_assert(SCREEN_WIDTH > 0 && SCREEN_HEIGHT > 0, "Invalid screen size");

@@ -1,0 +1,41 @@
+#pragma once
+#include <Arduino.h>
+
+// ===== Fix terfilter =====
+struct GPSFix {
+  double lat;       // deg
+  double lon;       // deg
+  double alt_m;     // meters
+  float  sog_mps;   // speed over ground (filtered), m/s
+  float  cog_deg;   // course over ground, deg 0..360
+  float  hdop;      // meters-ish (from GGA)
+  uint8_t fixQ;     // GGA fix quality (0=no fix,1=GPS,2=DGPS,...)
+  uint8_t sv;       // satellites
+  uint32_t t_ms;    // monotonic ms (millis) of this fix
+  bool valid;       // passed gating/filter
+};
+
+// Statistik ringan
+struct GPSStats {
+  uint32_t nmea_lines = 0;
+  uint32_t gga_ok = 0;
+  uint32_t rmc_ok = 0;
+  uint32_t cks_fail = 0;
+  uint32_t reject_hdop = 0;
+  uint32_t reject_jump = 0;
+};
+
+void gps_reader_begin(uint16_t lineBuf = 128); // siapkan parser
+bool gps_poll(GPSFix& out);                    // panggil sering; true jika ada fix baru
+const GPSStats& gps_stats();                   // baca statistik
+
+// Tuning filter (opsional, bisa dibiarkan default)
+struct GPSFilterTuning {
+  float max_hdop_m = 1.5f;     // tolak fix jika > ini
+  float max_accel_mps2 = 8.0f; // clamp percepatan (drag start tinggi; adjust bila perlu)
+  float max_jerk_mps3  = 40.0f;// deteksi outlier
+  float ema_alpha_min  = 0.12f;// smoothing max
+  float ema_alpha_max  = 0.55f;// smoothing min (respons cepat)
+};
+
+void gps_set_filter_tuning(const GPSFilterTuning& t);
