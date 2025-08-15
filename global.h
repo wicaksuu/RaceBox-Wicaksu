@@ -1,48 +1,53 @@
 #pragma once
+/* Global pins, constants, and shared objects for CYD (ESP32-2432S028R) + LVGL 9.x.
+   - Keep this header lean: only declarations and inline constexpr.
+   - Definitions live in global.cpp to avoid multiple definitions.
+*/
 #include <Arduino.h>
+#include <SPI.h>
+#include <lvgl.h>
+#include <TFT_eSPI.h>
+#include <XPT2046_Touchscreen.h>
 
-// ---------------------------------------------------------------------------
-// Pin definitions derived from README (ESP32-2432S028R)
-// ---------------------------------------------------------------------------
-#define PIN_TFT_MISO 12
-#define PIN_TFT_MOSI 13
-#define PIN_TFT_SCLK 14
-#define PIN_TFT_CS   15
-#define PIN_TFT_DC   2
-#define PIN_TFT_RST  -1
-#define PIN_TFT_BL   21
+// ---------- Display & Touch ----------
+inline constexpr int SCREEN_WIDTH  = 240;  // physical panel size (portrait)
+inline constexpr int SCREEN_HEIGHT = 320;
+inline constexpr lv_display_rotation_t DISP_ROTATION = LV_DISPLAY_ROTATION_270; // landscape
 
-#define PIN_TS_IRQ   36
-#define PIN_TS_MOSI  32
-#define PIN_TS_MISO  39
-#define PIN_TS_CLK   25
-#define PIN_TS_CS    33
+// XPT2046 touch pins (on CYD)
+inline constexpr int XPT2046_IRQ  = 36;  // T_IRQ (input-only)
+inline constexpr int XPT2046_MOSI = 32;  // T_DIN
+inline constexpr int XPT2046_MISO = 39;  // T_OUT (input-only)
+inline constexpr int XPT2046_CLK  = 25;  // T_CLK
+inline constexpr int XPT2046_CS   = 33;  // T_CS
+inline constexpr uint8_t TOUCH_ROTATION = 2; // 0..3, tune if axes are flipped
 
-#define PIN_SD_MISO  19
-#define PIN_SD_MOSI  23
-#define PIN_SD_SCLK  18
-#define PIN_SD_CS    5
+// Raw touch calibration (tweak to your panel)
+inline constexpr int TOUCH_X_MIN = 200;
+inline constexpr int TOUCH_X_MAX = 3700;
+inline constexpr int TOUCH_Y_MIN = 240;
+inline constexpr int TOUCH_Y_MAX = 3800;
 
-#define GPS_RX 27
-#define GPS_TX 22
+// ---------- LVGL buffers ----------
+#ifndef LV_COLOR_DEPTH
+#warning "LV_COLOR_DEPTH not defined, assuming 16-bit"
+#define LV_COLOR_DEPTH 16
+#endif
+inline constexpr int    DRAW_BUF_DIV        = 10; // ~10% of screen
+inline constexpr size_t DRAW_BUF_SIZE_BYTES =
+  (size_t(SCREEN_WIDTH) * size_t(SCREEN_HEIGHT) / DRAW_BUF_DIV) * (LV_COLOR_DEPTH / 8);
 
-// ---------------------------------------------------------------------------
-// Scheduler / timing constants
-// ---------------------------------------------------------------------------
-#define LVGL_TICK_MS        5
-#define WIFI_CONNECT_TIMEOUT_MS 10000
-#define WIFI_RETRY_DELAY_MS 1000
-#define GPS_READ_INTERVAL_MS 5
-#define UI_REFRESH_MS       50
+// Extern storage defined in global.cpp
+extern uint32_t LV_DRAW_BUF[DRAW_BUF_SIZE_BYTES / sizeof(uint32_t)];
 
-// Maximum log lines kept in memory
-#define LOGGER_MAX_LINES 100
+// ---------- Shared drivers/handles ----------
+extern SPIClass touchscreenSPI;                // VSPI for touch
+extern XPT2046_Touchscreen touchscreen;       // Touch driver
+extern lv_display_t* g_display;               // LVGL display handle
+extern lv_indev_t*   g_touch_indev;           // LVGL input device
 
-// Config file paths
-#define CONFIG_DIR "/config"
-#define CONFIG_FILE CONFIG_DIR "/system.json"
+// ---------- Logging ----------
+void lv_log_print_cb(lv_log_level_t level, const char * buf);
 
-// Forward declarations for structs used across modules
-struct Config;
-struct GpsStatus;
-
+// ---------- Sanity checks ----------
+static_assert(SCREEN_WIDTH > 0 && SCREEN_HEIGHT > 0, "Invalid screen size");
