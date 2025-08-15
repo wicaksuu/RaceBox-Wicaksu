@@ -14,7 +14,8 @@ static void trim_if_needed() {
   // buang 1/3 awal agar efisien
   size_t cut = s_maxlen / 3;
   s_logbuf.remove(0, cut);
-  s_logbuf = F("[trimmed]\n") + s_logbuf;
+  // Tambahkan prefix agar log menandakan bagian awal terpangkas
+  s_logbuf = String(F("[trimmed]\n")) + s_logbuf;
 }
 
 // Tulis ke Serial dan ke text area

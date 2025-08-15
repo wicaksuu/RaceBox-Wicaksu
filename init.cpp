@@ -2,6 +2,7 @@
 #include "logview.h"
 #include "gps_read.h"
 #include "race.h"
+#include <ArduinoJson.h> // untuk serialisasi/deserialisasi konfigurasi
 
 // ====== DMA flush state ======
 static volatile bool     s_dma_busy = false;

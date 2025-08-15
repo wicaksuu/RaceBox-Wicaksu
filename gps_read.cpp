@@ -2,6 +2,7 @@
 #include "global.h"
 #include "logview.h"
 #include <math.h>
+#include <algorithm>  // std::swap, std::max
 
 // ====== Serial alias ======
 #define GPS GPSSerial
@@ -11,7 +12,8 @@ static GPSStats S;
 
 // Ring buffer byte -> line parser
 static String line;            // 1 kalimat NMEA
-static uint16_t LINE_MAX = 128;
+// Batas panjang kalimat NMEA; gunakan nama unik agar tidak bentrok dengan macro sistem
+static uint16_t LINE_BUF_MAX = 128;
 
 // Last raw (dari RMC/GGA)
 static bool haveRMC=false, haveGGA=false;
@@ -112,12 +114,17 @@ static double dist_haversine_m(double lat1,double lon1,double lat2,double lon2){
 
 // median of 3
 static inline float med3(float a, float b, float c){
-  if (a>b) swap(a,b); if (b>c) swap(b,c); if (a>b) swap(a,b); return b;
+  // median-of-three sederhana untuk meredam outlier
+  if (a>b) std::swap(a,b);
+  if (b>c) std::swap(b,c);
+  if (a>b) std::swap(a,b);
+  return b;
 }
 
 void gps_reader_begin(uint16_t lineBuf){
-  LINE_MAX = max<uint16_t>(lineBuf, 96);
-  line.reserve(LINE_MAX);
+  // Pastikan buffer tidak kurang dari 96 karakter
+  LINE_BUF_MAX = std::max<uint16_t>(lineBuf, static_cast<uint16_t>(96));
+  line.reserve(LINE_BUF_MAX);
   haveGGA=haveRMC=false;
   filt_init=false;
   S = GPSStats{};
@@ -141,11 +148,11 @@ bool gps_poll(GPSFix& out){
         if (line.indexOf("GGA")>=0) parse_gga(line);
         else if (line.indexOf("RMC")>=0) parse_rmc(line);
         // Reset jika terlalu panjang
-        if (line.length()>LINE_MAX) line.remove(0);
+        if (line.length()>LINE_BUF_MAX) line.remove(0);
       }
       line = "";
     } else {
-      if (line.length() < LINE_MAX) line += ch;
+      if (line.length() < LINE_BUF_MAX) line += ch;
       else line = ""; // overflow guard
     }
     any=true;
